@@ -105,37 +105,37 @@ def create_heatmap():
 def main():
     st.set_option('deprecation.showPyplotGlobalUse', False)
     st.title('Market Basket Analysis of Minger Sales')
-    st.write(" ")
-    st.write(" ")
-    st.write(" ")
+    st.markdown("---")
     st.write("""
-### Association Rules:""")
+### Association Rules: """)
     st.dataframe(rules)
     st.write(" ")
-    st.write(" ")
-    st.write(" ")
+    st.markdown("---")
     st.write("""
-## And here are some visualizations:""")
+## And here are some visualizations: """)
     st.write("""
-### Bar chart for support values:""")
+### Bar chart for support values: """)
     create_support_bar_chart()
     st.write(" ")
     st.write(" ")
     st.write(" ")
+    st.markdown("---")
     st.write("""
-### Bar chart for confidence values:""")
+### Bar chart for confidence values: """)
     create_confidence_bar_chart()
     st.write(" ")
     st.write(" ")
     st.write(" ")
+    st.markdown("---")
     st.write("""
-### Bar chart for lift values:""")
+### Bar chart for lift values: """)
     create_lift_bar_chart()
     st.write(" ")
     st.write(" ")
     st.write(" ")
+    st.markdown("---")
     st.write("""
-### Co-occurrence Matrix of Sub-Categories (Excluding Same Product Combinations) (Heatmap):""")
+### Co-occurrence Matrix of Sub-Categories (Excluding Same Product Combinations):""")
     create_heatmap()
 if __name__ == '__main__':
     main()
