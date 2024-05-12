@@ -1,141 +1,171 @@
 import streamlit as st
+import plotly.express as px
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from mlxtend.frequent_patterns import apriori, association_rules
-import scipy.stats as stats
-import seaborn as sns
+import os
+import warnings
+warnings.filterwarnings('ignore')
+# Title of the app
+st.set_page_config(page_title="Minger Sales Dashboard", page_icon=":bar_chart:",layout="wide")
+st.title(" :bar_chart: Minger Sales Dashboard")
+st.markdown('<style>div.block-container{padding-top:1.5%;}</style>',unsafe_allow_html=True)
 
-# Load your data
-data = pd.ExcelFile("Global Superstore lite.xlsx")
+# File uploading or browsing the available file
+fl = st.file_uploader(":file_folder: Upload a file",type=(["xlsx","xls"]))
+if fl is not None:
+    filename = fl.name
+    st.write(filename)
+    df = pd.read_excel(filename)
+else:
+   # os.chdir("C:\Users\savinash\Desktop\Lubnacw")
+    df = pd.read_excel("Global Superstore lite.xlsx")
 
-# Reading each sheet into a DataFrame
-orders_df = data.parse('Orders')
+col1,col2 = st.columns((2))
+df["Order Date"] = pd.to_datetime(df["Order Date"])
 
-# Convert 'Sub-Category' column into dummies i.e. Each unique value in the sub-category variable is converted into a column. 
-transaction_df = pd.get_dummies(orders_df['Sub-Category'])
+# Minimum and maximum dates
+startDate = pd.to_datetime(df["Order Date"].min())
+endDate = pd.to_datetime(df["Order Date"].max())
 
-# Concatenate 'Order ID' column to transaction_df
-transaction_df = pd.concat([orders_df['Order ID'], transaction_df], axis=1)
+with col1:
+    date1 = pd.to_datetime(st.date_input("Start Date", startDate))
 
-# Group by 'Order ID' and sum the occurrence of each sub-category for each order 
-transaction_df = transaction_df.groupby('Order ID').sum()
+with col2:
+    date2 = pd.to_datetime(st.date_input("End Date", endDate))
 
-# Replace occurrence greater than 1 with 1  - presence = 1 & absence = 0
-transaction_df = transaction_df.applymap(lambda x: 1 if x > 0 else 0)
+df = df[(df["Order Date"] >= date1) & (df["Order Date"] <= date2)].copy()
 
-# Market Basket Analysis - Utilizing the Apriori algorithm to find frequent itemsets
-frequent_itemsets = apriori(transaction_df, min_support=0.001, use_colnames=True)
+# filters
+st.sidebar.header("Choose your filters :")
+# Filter for region
+region = st.sidebar.multiselect("Pick your Region",df ["Region"].unique())
+if not region:
+    df2 = df.copy()
+else:
+    df2 = df[df["Region"].isin(region)]
 
-# Generate association rules with a confidence threshold of 5%
-rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=0.05)
+# Filter for state based on region
+state = st.sidebar.multiselect("Pick your State",df2 ["State"].unique())
+if not state:
+    df3 = df2.copy()
+else:
+    df3 = df2[df2["State"].isin(state)]
 
-# Calculate standard error of confidence
-std_error_confidence = stats.sem(rules['confidence'])
+# Filter for city, based on state and region
+city = st.sidebar.multiselect("Pick your City",df3 ["City"].unique())
 
-# Calculate critical value (e.g., for 95% confidence interval)
-critical_value = stats.t.ppf(0.975, len(rules)-1)
+if not region and not state and not city:
+    filtered_df = df
+elif not state and not city:
+    filtered_df = df[df["Region"].isin(region)]
+elif not region and not city:
+    filtered_df = df[df["State"].isin(state)]
+elif state and city:
+    filtered_df = df3[df["State"].isin(state) & df3["City"].isin(city)]
+elif region and city:
+    filtered_df = df3[df["Region"].isin(region) & df3["City"].isin(city)]
+elif region and state:
+    filtered_df = df3[df["Region"].isin(region) & df3["State"].isin(state)]
+elif city:
+    filtered_df = df3[df3["City"].isin(city)]  
+else:
+    filtered_df = df3[df3["Region"].isin(region) & df3["State"].isin(state) & df3["City"].isin(city)]
 
-# Calculate margin of error
-margin_of_error = critical_value * std_error_confidence
+category_df = filtered_df.groupby(by = ["Category"], as_index = False)["Sales"].sum()
 
-# Calculate confidence interval
-confidence_interval_lower = rules['confidence'] - margin_of_error
-confidence_interval_upper = rules['confidence'] + margin_of_error
+#Column chart
+with col1:
+    st.subheader("Catergory wise Sales")
+    fig = px.bar(category_df,x = "Category", y = "Sales", text = ['${:,.2f}'.format(x) for x in category_df["Sales"]],
+                 template = "seaborn")
+    st.plotly_chart(fig,use_container_width=True,height=200)
 
-# Add confidence interval to the DataFrame
-rules['confidence_interval_lower'] = confidence_interval_lower
-rules['confidence_interval_upper'] = confidence_interval_upper
+#Pie chart 
+with col2:
+    st.subheader("Region wise Sales")
+    fig = px.pie(filtered_df,values = "Sales", names = "Region", hole= 0.5)
+    fig.update_traces(text= filtered_df["Region"], textposition = "outside")
+    st.plotly_chart(fig,use_container_width=True)
 
-# Define functions to create bar charts
-def create_support_bar_chart():
-    # Plotting support
-    support = rules['support']
-    plt.bar(range(len(support)), support, color='green')
+#Downloading Category wise and Region wise data
+cl1,cl2 = st.columns(2)
+with cl1:
+    with st.expander("Category Data"):
+        st.write(category_df.style.background_gradient(cmap="Blues"))
+        excel = category_df.to_csv(index = False).encode('utf-8')
+        st.download_button("Dowload Data", data = excel, file_name = "Category.csv", mime = "text/csv",
+                           help = 'Click here to download the data as an excel file')
 
-    # Adding labels and title
-    plt.xlabel('Association Rules')
-    plt.ylabel('Support Values')
-    plt.title('Bar Graph of Support Values')
+with cl2:
+    with st.expander("Region Data"):
+        region = filtered_df.groupby(by = "Region", as_index = False)["Sales"].sum()
+        st.write(region.style.background_gradient(cmap="Oranges"))
+        csv = region.to_csv(index = False).encode('utf-8')
+        st.download_button("Dowload Data", data = csv, file_name = "Region.csv", mime = "text/csv",
+                           help = 'Click here to download the data as a CSV file')
 
-    st.pyplot()
+#Time Series Analysis
+filtered_df["month/year"] = filtered_df["Order Date"].dt.to_period("M")
+st.subheader('Time Series Analysis')
 
-def create_confidence_bar_chart():
-    confidence = rules['confidence']
-    plt.bar(range(len(confidence)), confidence, color='orange')
+linechart = pd.DataFrame(filtered_df.groupby(filtered_df["month/year"].dt.strftime("%Y : %b"))["Sales"].sum()).reset_index()
+fig2 = px.line(linechart, x = "month/year", y = "Sales", labels = {"Sales":"Amount"}, height = 500, width = 100, template = "gridon")
+st.plotly_chart(fig2,use_container_width=True)
 
-    # Adding labels and title
-    plt.xlabel('Association Rules')
-    plt.ylabel('Confidence Values')
-    plt.title('Bar Graph of Confidence Values')
+#Downloading Time series Analysis data
+with st.expander("Time Series Analysis Data"):
+        st.write(linechart.T.style.background_gradient(cmap="Greens"))
+        csv = linechart.to_csv(index = False).encode('utf-8')
+        st.download_button("Dowload Data", data = csv, file_name = "Time_Series_Analysis.csv", mime = "text/csv",
+                           help = 'Click here to download the data as a CSV file')
 
-    st.pyplot()
+# Tree map based on Region, Category, Sub-Category
+st.subheader("Hierarchical View of Sales using Tree Map")
+fig3 = px.treemap(filtered_df,path = ["Region", "Category", "Sub-Category"], values = "Sales", hover_data = "Sales",
+    color = "Sub-Category")
+fig3.update_layout(width = 800, height = 650)
+st.plotly_chart(fig3,use_container_width=True)
 
-def create_lift_bar_chart():
-    lift = rules['lift']
-    plt.bar(range(len(lift)), lift, color='blue')
+# Segment wise and Category wise Sales charts
+chart1, chart2 = st.columns((2))
+with chart1 :
+    st.subheader('Segment wise Sales')
+    fig = px.pie(filtered_df,values = "Sales", names = "Segment", template = "plotly_dark")
+    fig.update_traces(text = filtered_df["Segment"], textposition = "inside")
+    st.plotly_chart(fig,use_container_width=True)
 
-    # Adding a horizontal line for values above 1
-    plt.axhline(y=1, color='black', linestyle='--')
+with chart2:
+    st.subheader('Category wise Sales')
+    fig = px.pie(filtered_df,values = "Sales", names = "Category", template = "gridon")
+    fig.update_traces(text = filtered_df["Category"], textposition = "inside")
+    st.plotly_chart(fig,use_container_width=True)
 
-    # Adding labels and title
-    plt.xlabel('Association Rules')
-    plt.ylabel('Lift Values')
-    plt.title('Bar Graph of Lift Values')
+# Summary tables
+import plotly.figure_factory as ff
+st.subheader(":point_right: Month wise Sub-Category Sales Summary")
+with st.expander("Summary_Table"):
+    df_sample = df[0:5][["Region","State","City","Category","Sales","Profit","Quantity"]]
+    fig = ff.create_table(df_sample,colorscale = "Cividis")
+    st.plotly_chart(fig,use_container_width = True)
 
-    st.pyplot()
-    
-def create_heatmap():
-    # Co-occurrence matrix
-    co_occurrence_matrix = transaction_df.T.dot(transaction_df)
+    st.markdown("Month wise sub-category Table")
+    filtered_df["month"] = filtered_df["Order Date"].dt.month_name()
+    sub_category_Year = pd.pivot_table(data = filtered_df, values = "Sales", index = ["Sub-Category"],columns = "month")
+    st.write(sub_category_Year.style.background_gradient(cmap = "Oranges"))
 
-    # Set diagonal elements to 0
-    np.fill_diagonal(co_occurrence_matrix.values, 0)
+#Scatter plot
+data1 = px.scatter(filtered_df, x = "Sales", y = "Profit", size = "Quantity")
+data1["layout"].update(title= "Relationship between Sales and Profits using Scatter Plot",
+                       titlefont = dict(size = 20),
+                       xaxis = dict(title = "Sales", titlefont = dict(size = 19)),
+                       yaxis = dict(title = "Profit", titlefont = dict(size = 19)))
+st.plotly_chart(fig,use_container_width=True)
 
-    # Plot the heatmap
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(co_occurrence_matrix, annot=True, cmap="YlGnBu", fmt="d", linewidths=2)
-    plt.title('Co-occurrence Matrix of Sub-Categories (Excluding Same Product Combinations)')
-    plt.xlabel('Sub-Category')
-    plt.ylabel('Sub-Category')
-    st.pyplot()
+#Dislaying all the data
+st.subheader(":point_right: Entire Sales Table")
+with st.expander("View Entire data"):
+    st.write(filtered_df.iloc[:,1:20:2].style.background_gradient(cmap="Greens"))
 
-
-# Main function to run the Streamlit app
-def main():
-    st.set_option('deprecation.showPyplotGlobalUse', False)
-    st.title('Market Basket Analysis of Minger Sales')
-    st.markdown("---")
-    st.write("""
-### Association Rules: """)
-    st.dataframe(rules)
-    st.write(" ")
-    st.markdown("---")
-    st.write("""
-## And here are some visualizations: """)
-    st.write("""
-### Bar chart for support values: """)
-    create_support_bar_chart()
-    st.write(" ")
-    st.write(" ")
-    st.write(" ")
-    st.markdown("---")
-    st.write("""
-### Bar chart for confidence values: """)
-    create_confidence_bar_chart()
-    st.write(" ")
-    st.write(" ")
-    st.write(" ")
-    st.markdown("---")
-    st.write("""
-### Bar chart for lift values: """)
-    create_lift_bar_chart()
-    st.write(" ")
-    st.write(" ")
-    st.write(" ")
-    st.markdown("---")
-    st.write("""
-### Co-occurrence Matrix of Sub-Categories (Excluding Same Product Combinations):""")
-    create_heatmap()
-if __name__ == '__main__':
-    main()
+#Downloading the entire data
+csv = df.to_csv(index = False).encode('utf-8')
+st.download_button("Dowload Data", data = csv, file_name = "Minge_SalesData_Set.csv", mime = "text/csv",
+                           help = 'Click here to download the data as a CSV file')
